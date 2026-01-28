@@ -10,9 +10,10 @@ from pydantic import BaseModel
 
 from dotenv import load_dotenv
 
-from app.storage.blob_client import BlobClient  # vamos criar/ajustar depois
-from app.models.events import Event, SimpleResponse             # Event + EventType
-from app.handlers.handlers import handle_dav_collect_fiscal, handle_extract_validate, handle_dav_collect_fiscal, handle_intake_docs,handle_dav_draft_generation
+from storage.blob_client import BlobClient  # vamos criar/ajustar depois
+from models.events import Event, SimpleResponse             # Event + EventType
+from models.state import ProcessState
+from graph.workflow import build_graph
 
 
 # mais tarde: from app.graph.nodes import process_event
@@ -31,7 +32,7 @@ app.add_middleware(
 )
 
 blob_client = BlobClient()
-
+graph = build_graph()
 
 
 
@@ -49,36 +50,6 @@ async def get_process_state(process_id: str):
     return state
 
 
-# app/main.py (ou app/graph/router.py no futuro)
-
-def route_event(state: dict, event: dict) -> dict:
-    # EVENTOS GLOBAIS (válidos em qualquer fase)
-    if event.get("type") == "advance_phase":
-        data = event.get("data", {})
-        state["fase_atual"] = data.get("nova_fase", state.get("fase_atual"))
-        state["sub_fase"] = data.get("sub_fase", state.get("sub_fase"))
-        state.setdefault("historico", []).append(f"Fase alterada manualmente para {state['fase_atual']}")
-        return state
-    
-    # Routing por fase
-    fase_atual = state.get("fase_atual", "INTAKE_DOCS")
-    
-    if fase_atual == "INTAKE_DOCS":
-        return handle_intake_docs(state, event)
-    elif fase_atual == "EXTRACT_VALIDATE":
-        return handle_extract_validate(state, event)
-    elif fase_atual == "DAV_FLOW":
-        return handle_dav_collect_fiscal(state, event)
-    elif fase_atual == "DAV_DRAFT_READY":  # ← NOVO
-        return handle_dav_draft_generation(state, event)
-    else:
-        state.setdefault("historico", []).append(
-            f"Evento ignorado na fase {fase_atual}: {event.get('type')}"
-        )
-        return state
-
-
-
 
 @app.post("/processes/{process_id}/events")
 async def handle_event(
@@ -86,13 +57,21 @@ async def handle_event(
     event_json: str = Form(...),
     file: Optional[UploadFile] = File(None),
 ):
-    state = await blob_client.get_state(process_id)
+    # 1) ler estado atual do Blob
+    state_dict = await blob_client.get_state(process_id)
 
+    # 2) validar que tem process_id
+    state_dict.setdefault("process_id", process_id)
+
+    state_obj = ProcessState(**state_dict)
+
+    # 3) parse do evento
     try:
         event = json.loads(event_json)
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="event_json inválido")
 
+    # 4) upload de ficheiro se existir
     if file is not None:
         blob_path = f"processes/{process_id}/docs/{file.filename}"
         await blob_client.upload_file(blob_path, file)
@@ -100,21 +79,36 @@ async def handle_event(
         event["data"]["blob_path"] = blob_path
         event["data"]["filename"] = file.filename
 
-    new_state = route_event(state, event)
+    # 5) eventos globais (advance_phase) continuam aqui se quiseres
+    if event.get("type") == "advance_phase":
+        data = event.get("data", {})
+        state_obj.fase_atual = data.get("nova_fase", state_obj.fase_atual)
+        state_obj.sub_fase = data.get("sub_fase", state_obj.sub_fase)
+        state_obj.historico.append(f"Fase alterada manualmente para {state_obj.fase_atual}")
+        new_state = state_obj
+    else:
+        # 6) meter evento no state.flags para os nodes lerem
+        state_obj.flags["last_event"] = event
 
-    await blob_client.save_state(process_id, new_state)
+        # 7) correr o grafo (um passo)
+        new_state: ProcessState = await graph.ainvoke(state_obj)
+
+    # 8) guardar no Blob
+    await blob_client.save_state(process_id, new_state.model_dump())
 
     return {
         "success": True,
-        "fase_atual": new_state["fase_atual"],
-        "sub_fase": new_state.get("sub_fase"),
-        "state": new_state,
+        "fase_atual": new_state.fase_atual,
+        "sub_fase": new_state.sub_fase,
+        "state": new_state.model_dump(),
     }
+
 
 
 
 
 if __name__ == "__main__":
     import uvicorn
+
 
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
