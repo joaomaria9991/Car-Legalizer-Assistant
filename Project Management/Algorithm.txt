@@ -1,0 +1,30 @@
+[ START ] 
+    ↓
+👤 USER ONBOARDING + UPLOAD DOCS
+(fatura, DUA estrangeiro, COC, ID)
+    ↓
+🤖 INTAKE_DOCS (Nó 1)
+(classifica docs + valida obrigatórios)
+    ↓
+📄 EXTRACT_VALIDATE (Nó 2) 
+(OCR + LLM → perfil_carro JSON)
+    ↓
+🔍 CHECK INSPEÇÃO B
+    ↓
+✅ SE JÁ TEM MODELO 112 → INSPECTION_OK
+❌ SE NÃO → AGUARDAR_UPLOAD_112 (user leva carro)
+    ↓
+🏁 INSPECTION_OK
+    ↓
+🔢 HOMOLOGATION_FLOW (Nó 3)
+(verifica nº homologação ou gera Modelo 9 IMT)
+    ↓
+💰 DAV_FLOW (Nó 4 - O MAIS COMPLEXO)
+├── COLETAR_DADOS_FISCAIS (NIF, morada, data entrada PT, regime)
+├── GERAR_DAV_DRAFT (JSON completo)
+└── ROTEIRO_PREENCHIMENTO ("Campo X = valor Y")
+    ↓ [user copia no Portal das Finanças + paga ISV]
+📋 REGISTRATION_FLOW (Nó 5)
+(matrícula + registo + DUA + IUC)
+    ↓
+🎉 PROCESSO_COMPLETO
