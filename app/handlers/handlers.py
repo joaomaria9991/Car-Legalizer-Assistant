@@ -1,23 +1,10 @@
 from fastapi import HTTPException
+import json
 
-def handle_dav_collect_fiscal(state: dict, event: dict) -> dict:
-    historico = state.setdefault("historico", [])
-    
-    if event.get("type") == "answer_fiscal_questions":
-        data = event.get("data", {})
-        
-        # Preenche os campos que vieram
-        fiscal = state.setdefault("dados_fiscal", {})
-        if "nif" in data:
-            fiscal.setdefault("declarante", {})["nif"] = data["nif"]
-        if "data_entrada_pt" in data:
-            fiscal.setdefault("entrada_pt", {})["data"] = data["data_entrada_pt"]
-        if "modo_entrada" in data:
-            fiscal.setdefault("entrada_pt", {})["modo"] = data["modo_entrada"]
-        
-        historico.append(f"Dados fiscais atualizados: {list(data.keys())}")
-    
-    return state
+from app.llms import llm
+from app.prompts.dav_prompts import EXTRACT_DADOS_CARRO
+
+
 
 
 
@@ -189,3 +176,5 @@ def handle_dav_draft_generation(state: dict, event: dict) -> dict:
         state.setdefault("historico", []).append("DAV draft gerado com sucesso!")
         
     return state
+
+

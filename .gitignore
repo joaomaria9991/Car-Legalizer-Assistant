@@ -206,3 +206,13 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+app/mercedes-data/1.pdf
+app/mercedes-data/2.pdf
+app/mercedes-data/3.pdf
+app/mercedes-data/4.png
+app/mercedes-data/5.png
+app/mercedes-data/6.png
+app/mercedes-data/7.png
+app/mercedes-data/8.png
+app/mercedes-data/9.jpg
+dados_carro_demo.json

@@ -1,96 +1,42 @@
 #!/usr/bin/env python3
-"""
-Teste completo do grafo - VERSÃO FINAL CORRIGIDA
-"""
+"""TESTA APENAS EXTRAÇÃO FINAL → dados_carro"""
 
 import asyncio
 import json
-from pathlib import Path
-from typing import List
-from models.state import ProcessState
-from graph.workflow import build_graph
-
-async def create_test_files():
-    test_dir = Path("test_files")
-    test_dir.mkdir(exist_ok=True)
-    
-    for filename in ["fatura.pdf", "dua.pdf"]:
-        filepath = test_dir / filename
-        if not filepath.exists():
-            filepath.write_bytes(b"%PDF-1.4\nTest document\n")
-            print(f"✅ Criado {filepath}")
-
-async def test_full_workflow():
-    print("🚀 TESTE COMPLETO DO GRAFO\n" + "="*50)
-    
-    graph = build_graph()
-    process_id = "test-complete-123"
-    
-    state = ProcessState(
-        process_id=process_id,
-        fase_atual="INTAKE_DOCS",
-        docs={},  # ✅ correto
-        historico=[],
-        flags={}
-    )
-    
-    print(f"📍 INÍCIO: {state.fase_atual}")
-    
-    # 1. UPLOAD FATURA
-    print("\n1️⃣ UPLOAD FATURA")
-    state.flags["last_event"] = {
-        "type": "upload_doc",
-        "data": {"doc_type": "fatura", "filename": "fatura.pdf"}
-    }
-    result_dict = await graph.ainvoke(state.model_dump())  # ✅ devolve dict
-    state = ProcessState.model_validate(result_dict)       # ✅ volta a ProcessState
-    print(f"   → {state.fase_atual} | Docs: {list(state.docs.keys())}")
-    
-    # 2. UPLOAD DUA
-    print("\n2️⃣ UPLOAD DUA")
-    state.flags["last_event"] = {
-        "type": "upload_doc",
-        "data": {"doc_type": "dua", "filename": "dua.pdf"}
-    }
-    result_dict = await graph.ainvoke(state.model_dump())
-    state = ProcessState.model_validate(result_dict)
-    print(f"   → {state.fase_atual} | Docs: {list(state.docs.keys())}")
-    
-    # 3. START_EXTRACT
-    print("\n3️⃣ START_EXTRACT")
-    state.flags["last_event"] = {"type": "start_extract"}
-    result_dict = await graph.ainvoke(state.model_dump())
-    state = ProcessState.model_validate(result_dict)
-    print(f"   → {state.fase_atual}")
-    
-    # 4. ANSWER_FISCAL_QUESTIONS
-    print("\n4️⃣ ANSWER_FISCAL")
-    state.flags["last_event"] = {
-        "type": "answer_fiscal_questions",
-        "data": {
-            "matricula": "AB-12-CD",
-            "nif_proprietario": "123456789",
-            "valor_compra": 25000
-        }
-    }
-    result_dict = await graph.ainvoke(state.model_dump())
-    state = ProcessState.model_validate(result_dict)
-    print(f"   → {state.fase_atual}")
-    
-    # 5. GENERATE_DAV_DRAFT
-    print("\n5️⃣ GENERATE_DAV_DRAFT")
-    state.flags["last_event"] = {"type": "generate_dav_draft"}
-    result_dict = await graph.ainvoke(state.model_dump())
-    state = ProcessState.model_validate(result_dict)
-    print(f"   → {state.fase_atual} | sub_fase: {getattr(state, 'sub_fase', 'N/A')}")
-    
-    print("\n🎉 FLUXO COMPLETO OK!")
-    return state
+import requests
+from app.models.state import ProcessState
+from app.graph.workflow import build_graph
 
 async def main():
-    await create_test_files()
-    await test_full_workflow()
-    print("\n✅ TESTE CONCLUÍDO!")
+    process_id = "demo-process-001"
+    
+    print(f"🚗 TESTE EXTRAÇÃO DADOS CARRO - {process_id}")
+    print("=" * 40)
+    
+    # 1. Lê estado atual (precisa ter raw_page_insights da Fase 1)
+    resp = requests.get(f"http://localhost:8000/processes/{process_id}")
+    state = ProcessState.model_validate(resp.json())
+    
+    print(f"📊 Antes: fase={state.fase_atual} | dados_carro={bool(state.dados_carro)}")
+    
+    # 2. Só injeta o evento e roda
+    state.flags["last_event"] = {"type": "start_extract"}
+    state.fase_atual = "EXTRACT_VALIDATE"
+    
+    graph = build_graph()
+    result = await graph.ainvoke(state.model_dump())
+    state_final = ProcessState.model_validate(result)
+    
+    # 3. Resultado
+    print(f"\n✅ DADOS CARRO EXTRAÍDOS!")
+    print(f"📍 fase_atual: {state_final.fase_atual}")
+    print("\n📊 dados_carro:")
+    print(json.dumps(state_final.dados_carro, indent=2, ensure_ascii=False))
+    
+    # Salva
+    with open(f"dados_carro_{process_id}.json", "w", encoding="utf-8") as f:
+        json.dump(state_final.model_dump(), f, indent=2)
+    print(f"\n💾 Salvo: dados_carro_{process_id}.json")
 
 if __name__ == "__main__":
     asyncio.run(main())

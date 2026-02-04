@@ -10,10 +10,10 @@ from pydantic import BaseModel
 
 from dotenv import load_dotenv
 
-from storage.blob_client import BlobClient  # vamos criar/ajustar depois
-from models.events import Event, SimpleResponse             # Event + EventType
-from models.state import ProcessState
-from graph.workflow import build_graph
+from app.storage.blob_client import BlobClient  
+from app.models.events import Event, SimpleResponse             # Event + EventType
+from app.models.state import ProcessState
+from app.graph.workflow import build_graph
 
 
 # mais tarde: from app.graph.nodes import process_event
