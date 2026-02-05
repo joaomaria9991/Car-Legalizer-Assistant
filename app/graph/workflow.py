@@ -1,6 +1,8 @@
 from typing import Literal
 from langgraph.graph import StateGraph, END
-from app.models.state import ProcessState
+from langgraph.prebuilt import ToolNode
+from langchain_core.messages import HumanMessage, SystemMessage
+
 import json
 
 import pdf2image
@@ -15,11 +17,16 @@ from app.handlers.handlers import (
     handle_dav_draft_generation,
 )
 from app.llms import llm  # teu AzureOpenAI
-from app.prompts.dav_prompts import EXTRACT_DADOS_CARRO, GENERATE_DAV
+from app.prompts.dav_prompts import  GENERATE_DAV
 from app.storage.blob_client import BlobClient
-from app.prompts.classification_prompts import CLASSIFY_DOC_PROMPT, HARMONIZE_DADOS_CARRO
+from app.prompts.classification_prompts import CLASSIFY_DOC_PROMPT
 from app.graph.graph_utils import (
     extract_all_pages_parallel, harmonize_all_data,find_doc_by_category)
+from app.models.state import ProcessState
+from app.graph.dav_flow_utils import set_dav_field, find_missing_fields, pick_questions, _resolve_key, SET_DAV_FIELD_TOOL
+
+dav_tool_node = ToolNode([set_dav_field])
+
 
 # ----------------- NÓS -----------------
 async def node_intake_docs(state: ProcessState) -> dict:
@@ -122,7 +129,6 @@ async def node_extract_validate(state: ProcessState) -> dict:
         state.historico.append(f"✅ Fase 1: {len(raw_insights)} páginas processadas em paralelo")
         
     
-    # FASE 2: já temos → harmonizar
     print("🚀 FASE 2: harmonizar tudo → dados_carro")
     
     raw_insights = state.flags["raw_page_insights"]
@@ -138,25 +144,146 @@ async def node_extract_validate(state: ProcessState) -> dict:
     return state.model_dump()
 
 
-
 async def node_dav_flow(state: ProcessState) -> dict:
-    """🤖 Gera DAV automático."""
-    event = state.flags.get("last_event", {})
-    
-    if event.get("type") == "generate_dav_draft" and state.dados_carro:
-        prompt = GENERATE_DAV.format(
-            dados_carro=state.dados_carro,
-            dados_fiscal=state.dados_fiscal
-        )
-        
-        response = llm.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        
-        state.dav_draft = response.choices[0].message.content
-        state.sub_fase = "DAV_READY"
-    
+    state.flags = state.flags or {}
+    event = state.flags.get("last_event") or {}
+
+    state.fase_atual = "DAV_FLOW"
+    state.sub_fase = getattr(state, "sub_fase", None) or "DAV_CHAT"
+
+    # 1) Se NÃO é resposta do user: pergunta missing
+    if event.get("type") != "dav_user_message":
+        missing = find_missing_fields(state.dados_carro or {})
+        if not missing:
+            state.flags["ui_out"] = {"type": "dav_ready", "message": "✅ DAV completa. Queres gerar o draft?"}
+            state.flags.pop("dav_pending_fields", None)
+            return state.model_dump()
+
+        ask_fields = pick_questions(missing, max_q=6)
+        state.flags["dav_pending_fields"] = ask_fields
+        state.flags["ui_out"] = {
+            "type": "dav_question",
+            "message": "Preciso de confirmar/preencher estes campos:",
+            "fields": ask_fields,
+        }
+        return state.model_dump()
+
+    # 2) É resposta do user: usa LLM para chamar tools e preencher pending
+    user_msg = (event.get("data") or {}).get("message", "").strip()
+    pending = state.flags.get("dav_pending_fields") or []
+
+    if not pending:
+        # sem pending → recalcula e pergunta
+        state.flags["last_event"] = {"type": "noop"}
+        return await node_dav_flow(state)
+
+    system_text = (
+        "És um assistente de preenchimento da DAV.\n"
+        "Só podes preencher os campos em PENDING_FIELDS.\n"
+        "Quando tiveres um valor para um campo, chama a tool set_dav_field(field=..., value=...).\n"
+        "Se o utilizador não deu valor, não inventes.\n"
+        "Se o utilizador disser 'não sei', não preenches.\n"
+    )
+
+    # Nota: aqui passamos apenas subset para reduzir tokens
+    subset = {k: (state.dados_carro or {}).get(k) for k in pending}
+
+    messages = [
+        {"role": "system", "content": system_text},
+        {"role": "user", "content": f"PENDING_FIELDS:\n{json.dumps(pending, ensure_ascii=False)}\n\nESTADO_SUBSET:\n{json.dumps(subset, ensure_ascii=False)}\n\nRESPOSTA_USER:\n{user_msg}"}
+    ]
+
+    # 2a) primeira chamada: o modelo decide tool calls
+    resp = llm.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=messages,
+        tools=[SET_DAV_FIELD_TOOL],
+        tool_choice="auto",
+        max_tokens=400,
+    )
+
+    msg = resp.choices[0].message
+
+    # 2b) se não chamou tools, devolve texto e repete pergunta
+    tool_calls = getattr(msg, "tool_calls", None) or []
+
+    # adiciona a mensagem do assistant (com tool_calls) ao histórico de mensagens
+    messages.append({
+        "role": "assistant",
+        "content": msg.content,
+        "tool_calls": [tc.model_dump() if hasattr(tc, "model_dump") else tc for tc in tool_calls] if tool_calls else None
+    })
+
+    applied = []
+
+    # 2c) executa tool calls manualmente
+    for tc in tool_calls:
+        fn = tc.function.name
+        args = json.loads(tc.function.arguments or "{}")
+
+        if fn == "set_dav_field":
+            # segurança: só permite campos pending
+            field = args.get("field")
+            if field:
+                # resolve para key real e verifica se pertence aos pending (por prefix match)
+                resolved = _resolve_key(state.dados_carro or {}, field)
+                if (resolved not in pending):
+                    # tentativa de mexer fora → ignora e reporta
+                    result = {"ok": False, "error": f"Campo fora de PENDING_FIELDS: {resolved}"}
+                else:
+                    result = set_dav_field(
+                        state,
+                        field=field,
+                        value=args.get("value"),
+                        clear=bool(args.get("clear", False)),
+                    )
+            else:
+                result = {"ok": False, "error": "field em falta"}
+
+        else:
+            result = {"ok": False, "error": f"Tool desconhecida: {fn}"}
+
+        applied.append(result)
+
+        # devolve resultado ao modelo como role=tool
+        messages.append({
+            "role": "tool",
+            "tool_call_id": tc.id,
+            "content": json.dumps(result, ensure_ascii=False),
+        })
+
+    # 2d) chamada final para o modelo “fechar” (opcional mas útil para UX)
+    resp2 = llm.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=messages,
+        max_tokens=250,
+    )
+    final_text = resp2.choices[0].message.content
+
+    # limpa pending atual e pergunta o próximo bloco
+    state.flags.pop("dav_pending_fields", None)
+
+    missing = find_missing_fields(state.dados_carro or {})
+    if not missing:
+        state.flags["ui_out"] = {
+            "type": "dav_ready",
+            "message": "✅ Top! DAV completa. Queres gerar o draft agora?",
+            "assistant_message": final_text,
+            "applied": applied,
+        }
+        return state.model_dump()
+
+    ask_fields = pick_questions(missing, max_q=6)
+    state.flags["dav_pending_fields"] = ask_fields
+    state.flags["ui_out"] = {
+        "type": "dav_question",
+        "message": "Perfeito. Faltam estes:",
+        "fields": ask_fields,
+        "assistant_message": final_text,
+        "applied": applied,
+    }
+
+    state.historico.append("💬 dav_user_message processado (tool-calling manual)")
     return state.model_dump()
 
 def node_dav_draft_ready(state: ProcessState) -> ProcessState:
@@ -164,6 +291,20 @@ def node_dav_draft_ready(state: ProcessState) -> ProcessState:
     state_dict = state.model_dump()
     state_dict = handle_dav_draft_generation(state_dict, event)
     return ProcessState(**state_dict)
+
+
+async def node_export_state(state: ProcessState) -> dict:
+    export_payload = state.model_dump()
+
+    # prune do que é gigante / desnecessário para UI
+    flags = export_payload.get("flags") or {}
+    flags.pop("raw_page_insights", None)
+    export_payload["flags"] = flags
+
+    state.flags["ui_out"] = {"type": "export", "data": export_payload}
+    state.flags["export_payload"] = export_payload
+    return state.model_dump()
+
 
 # ----------------- NÓ ROUTER INICIAL -----------------
 def router_node(state: ProcessState) -> ProcessState:
@@ -183,21 +324,37 @@ def router_node(state: ProcessState) -> ProcessState:
 
 # ----------------- FUNÇÕES DE TRANSIÇÃO -----------------
 def entry_router(state: ProcessState) -> Literal[
-    "INTAKE_DOCS", "EXTRACT_VALIDATE", "DAV_FLOW", "DAV_DRAFT_READY"
+    "EXPORT_STATE", "INTAKE_DOCS", "EXTRACT_VALIDATE", "DAV_FLOW", "DAV_DRAFT_READY"
 ]:
+    event = (state.flags or {}).get("last_event") or {}
+    if event.get("type") == "ui":
+        intent = (event.get("payload") or {}).get("intent")
+        if intent == "export_state":
+            return "EXPORT_STATE"
+        if intent in ("upload_more_docs", "reset_to_intake"):
+            state.fase_atual = "INTAKE_DOCS"
+            state.sub_fase = "AGUARDAR_UPLOAD"
+            # limpa caches derivadas
+            if state.flags:
+                state.flags.pop("raw_page_insights", None)
+            state.dados_carro = state.dados_carro or {}  # podes manter ou limpar
+            state.dav_draft = None if hasattr(state, "dav_draft") else None
+            return "INTAKE_DOCS"
+
+    # fallback: routing atual
     fase = state.fase_atual
     if fase == "INTAKE_DOCS":
         return "INTAKE_DOCS"
     if fase == "EXTRACT_VALIDATE":
         return "EXTRACT_VALIDATE"
     if fase == "DAV_FLOW":
-        # 👇 MUDANÇA: getattr(state, 'sub_fase') em vez de state.sub_fase
-        if getattr(state, 'sub_fase', None) == "DAV_DRAFT_READY":
+        if getattr(state, "sub_fase", None) == "DAV_DRAFT_READY":
             return "DAV_DRAFT_READY"
         return "DAV_FLOW"
     if fase == "DAV_DRAFT_READY":
         return "DAV_DRAFT_READY"
     return "INTAKE_DOCS"
+
 
 
 def next_after_intake(state: ProcessState):
@@ -233,23 +390,26 @@ def next_after_dav_draft_ready(state: ProcessState):
 
 # ----------------- BUILD_GRAPH -----------------
 def build_graph():
-    graph = StateGraph(ProcessState)
+    g = StateGraph(ProcessState)
 
-    # ADICIONA O NÓ ROUTER
-    graph.add_node("router", router_node)
-    graph.add_node("INTAKE_DOCS", node_intake_docs)
-    graph.add_node("EXTRACT_VALIDATE", node_extract_validate)
-    graph.add_node("DAV_FLOW", node_dav_flow)
-    graph.add_node("DAV_DRAFT_READY", node_dav_draft_ready)
+    # Nodes
+    g.add_node("router", router_node)
+    g.add_node("EXPORT_STATE", node_export_state)
 
-    # ENTRY POINT: começa sempre no router
-    graph.set_entry_point("router")
+    g.add_node("INTAKE_DOCS", node_intake_docs)
+    g.add_node("EXTRACT_VALIDATE", node_extract_validate)
+    g.add_node("DAV_FLOW", node_dav_flow)
+    g.add_node("DAV_DRAFT_READY", node_dav_draft_ready)
 
-    # ROUTER -> primeiro nó de negócio
-    graph.add_conditional_edges(
+    # Entry point
+    g.set_entry_point("router")
+
+    # Router -> next node
+    g.add_conditional_edges(
         "router",
         entry_router,
         {
+            "EXPORT_STATE": "EXPORT_STATE",
             "INTAKE_DOCS": "INTAKE_DOCS",
             "EXTRACT_VALIDATE": "EXTRACT_VALIDATE",
             "DAV_FLOW": "DAV_FLOW",
@@ -257,26 +417,29 @@ def build_graph():
         },
     )
 
-    # Conditional edges dos nós de negócio
-    graph.add_conditional_edges(
+    # Business edges
+    g.add_conditional_edges(
         "INTAKE_DOCS",
         next_after_intake,
         {"EXTRACT_VALIDATE": "EXTRACT_VALIDATE", END: END},
     )
-    graph.add_conditional_edges(
+    g.add_conditional_edges(
         "EXTRACT_VALIDATE",
         next_after_extract_validate,
         {"DAV_FLOW": "DAV_FLOW", END: END},
     )
-    graph.add_conditional_edges(
+    g.add_conditional_edges(
         "DAV_FLOW",
         next_after_dav_flow,
         {"DAV_DRAFT_READY": "DAV_DRAFT_READY", END: END},
     )
-    graph.add_conditional_edges(
+    g.add_conditional_edges(
         "DAV_DRAFT_READY",
         next_after_dav_draft_ready,
         {END: END},
     )
 
-    return graph.compile()
+    # EXPORT_STATE ends (or could go back to router)
+    g.add_edge("EXPORT_STATE", END)
+
+    return g.compile()

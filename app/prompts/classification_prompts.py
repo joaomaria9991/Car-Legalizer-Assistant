@@ -169,49 +169,89 @@ FORMATO DE RESPOSTA (JSON puro; sem markdown; sem texto extra):
 }
 """
 
+DOC_PROMPTS = {
+    # ===============================
+    # VEÍCULO - mas CAPTA TUDO!
+    # ===============================
+    "CERTIFICADO_MATRICULA": """
+🔍 Analisa LIVREMENTE este CERTIFICADO DE MATRÍCULA / DUA
+✅ PRIORIZA: Marca(34), Modelo(35), VIN(42), Matrícula(61), Peso(37), Lugares(44), Data 1ª matrícula(60)
+✅ CAPTA TAMBÉM: quilómetros, cor, combustível, proprietário, NIF, datas, códigos, qualquer coisa relevante!
 
+NÃO ignores nada só porque não está na lista!
+    """,
 
-HARMONIZE_DADOS_CARRO = """
-Tens abaixo o conteúdo textual que foi extraído por uma IA de TODAS as páginas de documentos relacionados com um carro.
-O texto já pode estar parcialmente estruturado, mas assume que pode haver redundâncias, contradições ou campos em branco.
+    "CERTIFICADO_CONFORMIDADE_VEICULO_COC": """
+🔍 CoC EUROPEU - analisa tudo!
+✅ PRIORIZA: Marca(34), Modelo(35), VIN(42), Cilindrada(45), CO2(50), Combustível(39)
+✅ CAPTA TAMBÉM: homologação, potência, emissões, categoria, peso, tudo o resto!
+    """,
 
------------------ CONTEXTO COMPLETO -----------------
-{raw_context}
------------------------------------------------------
+    "HOMOLOGACAO_TECNICA_IMT": """
+🔍 HOMOLOGAÇÃO - tudo importante!
+✅ PRIORIZA: Código homologação(30), Marca(34), Modelo(35), Peso(37)
+✅ CAPTA TAMBÉM: tipo veículo, variante, dimensões, tudo visível!
+    """,
 
-A partir APENAS da informação acima, constrói um ÚNICO objeto JSON com o melhor conhecimento que consegues ter sobre o carro.
-Segue estas regras:
+    "COMPROVATIVO_INSPECAO_TECNICA": """
+🔍 IPO/INSPEÇÃO - dados reais do carro!
+✅ PRIORIZA: Matrícula(61), Quilómetros(57), Combustível(39), Caixa(41)
+✅ CAPTA TAMBÉM: data inspeção, resultado, estado geral!
+    """,
 
-1) Estrutura EXATA do JSON de saída (sem texto extra, sem comentários, sem campos adicionais):
+    # ===============================
+    # COMERCIAIS - FATURAS etc
+    # ===============================
+    "FATURA_PROFORMA": """
+💰 FATURA - CAPTA TODOS OS NEGÓCIOS!
+✅ PRIORIZA: Vendedor(DC01), Comprador(DC05), Nº fatura(DC10), Data(DC11), Preço(DC13)
+✅ CAPTA TAMBÉM: IVA, total, moeda, moradas, contactos, termos!
+    """,
 
-{{
-  "marca": string | null,
-  "modelo": string | null,
-  "versao": string | null,
-  "matricula_origem": string | null,
-  "matricula_portuguesa": string | null,
-  "vin": string | null,
-  "combustivel": string | null,
-  "potencia_kw": number | null,
-  "cilindrada_cm3": number | null,
-  "ano_fabricacao": number | null,
-  "ano_primeira_matricula": number | null,
-  "co2_g_km": number | null,
-  "peso_bruto_kg": number | null,
-  "lugares": number | null,
-  "portas": number | null,
-  "caixa": string | null,          // ex: "manual", "automatica"
-  "tracao": string | null,         // ex: "dianteira", "traseira", "4x4"
-  "cor": string | null,
-  "extras_relevantes": string | null,   // texto livre com extras importantes
-  "origem_pais": string | null,
-  "observacoes": string | null
-}}
+    "DOCUMENTO_TRANSPORTE_CMR": """
+🚚 CMR TRANSPORTE INTERNACIONAL
+✅ PRIORIZA: Transportadora(DC22), Data entrada(DC25), País origem(56)
+✅ CAPTA TAMBÉM: remetente, destinatário, datas, valores, tudo!
+    """,
 
-2) Se um campo NÃO estiver presente em lado nenhum do contexto, coloca explicitamente null.
-3) Se encontraste valores contraditórios em páginas diferentes:
-   - escolhe o valor que parece mais fiável (por exemplo, aparece em documentos oficiais como certificado de matrícula ou COC),
-   - e explica brevemente a dúvida em "observacoes".
-4) NUNCA inventes dados. Se não tens a certeza, usa null e descreve a dúvida em "observacoes".
-5) A resposta deve ser APENAS o JSON final, sem qualquer texto antes ou depois.
-"""
+    # ===============================
+    # PESSOAIS - IDENTIFICAÇÕES
+    # ===============================
+    "CARTAO_CIDADAO": """
+🆔 CARTÃO CIDADÃO - dados pessoais!
+✅ PRIORIZA: NIF(06a), Nº doc(17a), Nome(18)
+✅ CAPTA TAMBÉM: validade, morada, data nascimento, tudo visível!
+    """,
+
+    "CARTAO_CONTRIBUINTE": """
+🆔 NIF ISOLADO
+✅ PRIORIZA: NIF(06a/17a)
+✅ CAPTA TAMBÉM: nome associado, validade, tudo!
+    """,
+
+    "PASSAPORTE": """
+🛂 PASSAPORTE ESTRANGEIRO
+✅ PRIORIZA: Nº passaporte(06a), Nacionalidade
+✅ CAPTA TAMBÉM: nome, validade, datas, tudo relevante!
+    """,
+
+    # ===============================
+    # 🚀 MÁGICO: CAPTA TUDO!
+    # ===============================
+    "OUTROS": """
+🌍 DOCUMENTO DESCONHECIDO - CAPTA ABSOLUTAMENTE TUDO!
+
+🔥 VIN (17 dígitos)
+🔥 Matrícula (qualquer formato)  
+🔥 Marca/modelo (qualquer lado)
+🔥 Nomes (pessoas/empresas)
+🔥 Preços (€, números grandes)
+🔥 Datas importantes
+🔥 NIF, códigos, homologações
+🔥 Moradas, contactos
+🔥 Cualquier coisa que pareça DAV!
+
+NÃO percas NADA - manda tudo no JSON mesmo que seja "chute"! 
+O harmonizer decide o que usar.
+    """
+}

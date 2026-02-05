@@ -2,7 +2,7 @@ from fastapi import HTTPException
 import json
 
 from app.llms import llm
-from app.prompts.dav_prompts import EXTRACT_DADOS_CARRO
+# from app.prompts.dav_prompts import EXTRACT_DADOS_CARRO
 
 
 

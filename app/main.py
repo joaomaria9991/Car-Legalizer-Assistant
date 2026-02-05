@@ -91,7 +91,16 @@ async def handle_event(
         state_obj.flags["last_event"] = event
 
         # 7) correr o grafo (um passo)
-        new_state: ProcessState = await graph.ainvoke(state_obj)
+        graph_out = await graph.ainvoke(state_obj)
+
+        # ✅ Normaliza: se vier dict, converte; se vier ProcessState, usa.
+        if isinstance(graph_out, ProcessState):
+            new_state = graph_out
+        elif isinstance(graph_out, dict):
+            new_state = ProcessState(**graph_out)
+        else:
+            raise HTTPException(status_code=500, detail=f"Graph devolveu tipo inesperado: {type(graph_out)}")
+
 
     # 8) guardar no Blob
     await blob_client.save_state(process_id, new_state.model_dump())
