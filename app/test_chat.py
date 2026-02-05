@@ -15,6 +15,8 @@ import json
 import time
 import requests
 
+from app.models import state
+
 
 API = "http://localhost:8000"
 PROCESS_ID = "demo-process-001"
@@ -33,6 +35,46 @@ def post_event(pid: str, event: dict) -> dict:
     r = requests.post(f"{API}/processes/{pid}/events", data=data, timeout=120)
     r.raise_for_status()
     return r.json()
+
+
+def show_bot(state: dict):
+    ui_out = (state.get("flags") or {}).get("ui_out") or {}
+    t = ui_out.get("type")
+
+    print(f"🧠 ui_out.type = {t}")
+
+    # ✅ mensagem do bot (dinâmica)
+    msg = ui_out.get("message") or ui_out.get("assistant_message") or ""
+    if msg:
+        print(f"🤖 {msg}")
+
+    # campos (pode vir list[str] ou list[dict] dependendo da tua implementação)
+    fields = ui_out.get("fields") or []
+    if fields:
+        print("\n🧾 Campos pedidos:")
+        if isinstance(fields[0], dict):
+            for f in fields:
+                print(f"  - {f.get('field')} :: {f.get('label')}")
+                if f.get("explain"):
+                    print(f"      • {f['explain']}")
+                if f.get("where"):
+                    print(f"      • Onde: {f['where']}")
+                ex = f.get("examples") or []
+                if ex:
+                    print(f"      • Ex: {', '.join(map(str, ex))}")
+        else:
+            for f in fields:
+                print(f"  - {f}")
+
+    applied = ui_out.get("applied") or []
+    if applied:
+        print("\n✅ Alterações aplicadas:")
+        for a in applied:
+            if isinstance(a, dict) and a.get("ok"):
+                print(f"  - {a.get('field_resolved')}: {a.get('old')} -> {a.get('new')}")
+            else:
+                print(f"  - {a}")
+
 
 
 def main():
@@ -61,13 +103,10 @@ def main():
         # podemos mandar um evento neutro para forçar execução.
         res = post_event(PROCESS_ID, {"type": "noop"})
         state = res["state"]
-
+        show_bot(state)
         ui_out = (state.get("flags") or {}).get("ui_out") or {}
         ui_type = ui_out.get("type")
 
-        print(f"🧠 ui_out.type = {ui_type}")
-        if ui_out.get("message"):
-            print(f"🤖 {ui_out['message']}")
 
         # 3b) Se DAV pronta, termina
         if ui_type == "dav_ready":
@@ -81,11 +120,22 @@ def main():
                 print("⚠️ dav_question sem fields — a sair")
                 break
 
-            print("\n🧾 Campos pedidos:")
-            for f in fields:
-                print(f"  - {f}")
+            user_msg = input("\n🧑 Responde (texto livre, ex: '61=AB-12-CD; 67=2026-02-05'): ").strip()
+            if not user_msg:
+                user_msg = "não sei"
 
-            # Modo interactivo: tu escreves a resposta
+            res = post_event(PROCESS_ID, {
+                "type": "dav_user_message",
+                "data": {"message": user_msg}
+            })
+            state = res["state"]
+
+            # aqui podes até NÃO chamar show_bot se não quiseres imprimir nada após a resposta
+            # show_bot(state)
+
+            time.sleep(2)
+            continue
+                    # Modo interactivo: tu escreves a resposta
             user_msg = input("\n🧑 Responde (texto livre, ex: '61=AB-12-CD; 67=2026-02-05'): ").strip()
             if not user_msg:
                 user_msg = "não sei"
@@ -98,11 +148,7 @@ def main():
             state = res["state"]
             ui_out = (state.get("flags") or {}).get("ui_out") or {}
 
-            # imprime feedback curto
-            if ui_out.get("assistant_message"):
-                print(f"\n🤖 {ui_out['assistant_message']}")
-            elif ui_out.get("message"):
-                print(f"\n🤖 {ui_out['message']}")
+            show_bot(state)
 
             # pequeno sleep para legibilidade
             time.sleep(0.2)

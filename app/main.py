@@ -88,6 +88,7 @@ async def handle_event(
         new_state = state_obj
     else:
         # 6) meter evento no state.flags para os nodes lerem
+        state_obj.flags = state_obj.flags or {}
         state_obj.flags["last_event"] = event
 
         # 7) correr o grafo (um passo)

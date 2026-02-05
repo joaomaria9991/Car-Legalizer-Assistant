@@ -25,7 +25,6 @@ from app.graph.graph_utils import (
 from app.models.state import ProcessState
 from app.graph.dav_flow_utils import set_dav_field, find_missing_fields, pick_questions, _resolve_key, SET_DAV_FIELD_TOOL
 
-dav_tool_node = ToolNode([set_dav_field])
 
 
 # ----------------- NÓS -----------------
@@ -161,12 +160,47 @@ async def node_dav_flow(state: ProcessState) -> dict:
 
         ask_fields = pick_questions(missing, max_q=6)
         state.flags["dav_pending_fields"] = ask_fields
+
+        # ✅ chama LLM para gerar explicações (NESTE turn)
+        system_text = (
+            "Responde APENAS com um objeto JSON. Sem markdown. Sem texto fora do JSON.\n"
+            "És um assistente de preenchimento da DAV.\n"
+            "Para CADA campo em falta, explica em 1–2 frases:\n"
+            "• o que é o campo\n"
+            "• onde o utilizador normalmente encontra (DUA/Certificado matrícula, CoC, Fatura, CMR, IMT, Inspeção, ou 'é uma escolha do utilizador')\n"
+            "• dá um exemplo de formato de resposta\n"
+            "Responde em JSON com este schema:\n"
+            "{\n"
+            '  "message": "texto curto introdutório",\n'
+            '  "fields": [\n'
+            '    {"field": "CODIGO", "label": "nome curto", "explain": "...", "where": "...", "examples": ["..."]}\n'
+            "  ]\n"
+            "}\n"
+            "Só podes falar dos campos em PENDING_FIELDS.\n"
+        )
+
+        subset = {k: (state.dados_carro or {}).get(k) for k in ask_fields}
+
+        resp = llm.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_text},
+                {"role": "user", "content": f"PENDING_FIELDS:\n{json.dumps(ask_fields, ensure_ascii=False)}\n\nESTADO_SUBSET:\n{json.dumps(subset, ensure_ascii=False)}"}
+            ],
+            max_tokens=1000,
+            response_format={"type": "json_object"},
+        )
+
+        llm_json = json.loads(resp.choices[0].message.content.strip())
+
         state.flags["ui_out"] = {
             "type": "dav_question",
-            "message": "Preciso de confirmar/preencher estes campos:",
-            "fields": ask_fields,
+            "message": llm_json.get("message") or "Preciso de confirmar/preencher estes campos:",
+            "fields": llm_json.get("fields") or ask_fields,  # fallback
         }
+
         return state.model_dump()
+
 
     # 2) É resposta do user: usa LLM para chamar tools e preencher pending
     user_msg = (event.get("data") or {}).get("message", "").strip()
@@ -176,13 +210,16 @@ async def node_dav_flow(state: ProcessState) -> dict:
         # sem pending → recalcula e pergunta
         state.flags["last_event"] = {"type": "noop"}
         return await node_dav_flow(state)
-
     system_text = (
         "És um assistente de preenchimento da DAV.\n"
+        "Quando pedires campos em falta, para CADA campo explica em 1–2 frases:\n"
+        "• o que é o campo\n"
+        "• onde o utilizador normalmente encontra (DUA/Certificado matrícula, CoC, Fatura, CMR, IMT, Inspeção, ou 'é uma escolha do utilizador')\n"
+        "• dá um exemplo de formato de resposta (ex: AA-12-BB, 2026-02-05, 'Conduzido', etc.)\n"
+        "Mantém linguagem simples e prática.\n"
         "Só podes preencher os campos em PENDING_FIELDS.\n"
         "Quando tiveres um valor para um campo, chama a tool set_dav_field(field=..., value=...).\n"
         "Se o utilizador não deu valor, não inventes.\n"
-        "Se o utilizador disser 'não sei', não preenches.\n"
     )
 
     # Nota: aqui passamos apenas subset para reduzir tokens
@@ -195,7 +232,7 @@ async def node_dav_flow(state: ProcessState) -> dict:
 
     # 2a) primeira chamada: o modelo decide tool calls
     resp = llm.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4o",
         messages=messages,
         tools=[SET_DAV_FIELD_TOOL],
         tool_choice="auto",
@@ -254,7 +291,7 @@ async def node_dav_flow(state: ProcessState) -> dict:
 
     # 2d) chamada final para o modelo “fechar” (opcional mas útil para UX)
     resp2 = llm.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4o",
         messages=messages,
         max_tokens=250,
     )
@@ -273,7 +310,8 @@ async def node_dav_flow(state: ProcessState) -> dict:
         }
         return state.model_dump()
 
-    ask_fields = pick_questions(missing, max_q=6)
+    ask_fields = pick_questions(missing, max_q=120)
+
     state.flags["dav_pending_fields"] = ask_fields
     state.flags["ui_out"] = {
         "type": "dav_question",
@@ -378,10 +416,14 @@ def next_after_extract_validate(state: ProcessState):
     return END
 
 def next_after_dav_flow(state: ProcessState):
-    event = state.flags.get("last_event") or {}
+    if state.fase_atual == "INTAKE_DOCS":
+        return "INTAKE_DOCS"
+
+    event = (state.flags or {}).get("last_event") or {}
     if event.get("type") == "generate_dav_draft":
         state.sub_fase = "DAV_DRAFT_READY"
         return "DAV_DRAFT_READY"
+
     return END
 
 def next_after_dav_draft_ready(state: ProcessState):
@@ -431,7 +473,7 @@ def build_graph():
     g.add_conditional_edges(
         "DAV_FLOW",
         next_after_dav_flow,
-        {"DAV_DRAFT_READY": "DAV_DRAFT_READY", END: END},
+        {"INTAKE_DOCS": "INTAKE_DOCS", "DAV_DRAFT_READY": "DAV_DRAFT_READY", END: END},
     )
     g.add_conditional_edges(
         "DAV_DRAFT_READY",

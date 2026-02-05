@@ -5,6 +5,7 @@ from langgraph.prebuilt import InjectedState
 from app.models.state import ProcessState
 import re
 from typing import Any, Dict, List, Tuple
+from app.llms import llm  # teu AzureOpenAI
 
 
 SET_DAV_FIELD_TOOL = {
@@ -23,6 +24,8 @@ SET_DAV_FIELD_TOOL = {
         }
     }
 }
+
+
 
 
 def _resolve_key(dados_carro: Dict[str, Any], field: str) -> str:
@@ -90,3 +93,22 @@ def pick_questions(missing: List[str], max_q: int = 6) -> List[str]:
             if len(chosen) >= max_q:
                 break
     return chosen
+
+
+
+async def llm_route_intent(user_msg: str) -> dict:
+    resp = llm.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": INTENT_ROUTER_SYSTEM},
+            {"role": "user", "content": user_msg},
+        ],
+        max_tokens=120,
+        response_format={"type": "json_object"},
+    )
+    raw = (resp.choices[0].message.content or "").strip()
+    try:
+        out = json.loads(raw)
+    except json.JSONDecodeError:
+        return {"intent": "answer_fields", "confidence": 0.0, "reason": "invalid_json_fallback"}
+    return out
