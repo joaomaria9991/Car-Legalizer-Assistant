@@ -62,6 +62,8 @@ def llm_json(*, model: str, messages: list[dict], max_tokens: int = 800) -> dict
 # INTAKE / CLASSIFICATION HELPERS
 # =========================
 
+
+
 def group_blobs_by_doc(all_blobs: list[dict]) -> dict[str, list[dict]]:
     """
     Agrupa blobs por documento lógico:

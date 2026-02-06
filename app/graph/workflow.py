@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Literal
 import json
+import asyncio
 
 from langgraph.graph import StateGraph, END
 
@@ -54,15 +55,33 @@ async def node_intake_docs(state: ProcessState) -> dict:
 
     pdf_groups = group_blobs_by_doc(all_blobs)
 
-    # Opcional: idempotência total
-    # state.docs = {}
+    # 🔧 controla concorrência (ajusta: 4/6/8)
+    sem = asyncio.Semaphore(6)
 
-    for doc_name, pages in pdf_groups.items():
-        first_page_blob = pages[0]["name"]
-        result = await classify_first_page(blob_client=blob_client, page_blob_name=first_page_blob)
+    async def classify_one(doc_name: str, pages: list[dict]) -> tuple[str, dict]:
+        # escolhe 1ª página que seja imagem
+        first_page_blob = None
+        for p in pages:
+            n = p["name"].lower()
+            if n.endswith(".jpg") or n.endswith(".jpeg") or n.endswith(".png") or n.endswith(".webp"):
+                first_page_blob = p["name"]
+                break
+
+        if not first_page_blob:
+            # devolve como OUTRO e segue (ou levanta erro — escolha tua)
+            return doc_name, {
+                "category": "OUTRO",
+                "pages": [p["name"] for p in pages],
+                "filename": doc_name,
+                "confidence": 0.0,
+                "status": "no_image_pages",
+            }
+
+        async with sem:
+            result = await classify_first_page(blob_client=blob_client, page_blob_name=first_page_blob)
 
         doc_type = result.get("category", "OUTRO")
-        state.docs[doc_name] = {
+        return doc_name, {
             "category": doc_type,
             "pages": [p["name"] for p in pages],
             "filename": doc_name,
@@ -70,7 +89,16 @@ async def node_intake_docs(state: ProcessState) -> dict:
             "status": "classified",
         }
 
-    state.historico.append(f"🤖 Classificou {len(pdf_groups)} documentos")
+    # dispara tudo em paralelo (controlado pelo semaphore)
+    tasks = [classify_one(doc_name, pages) for doc_name, pages in pdf_groups.items()]
+    results = await asyncio.gather(*tasks)
+
+    # escreve no state no fim (evita confusões)
+    for doc_name, doc_info in results:
+        state.docs[doc_name] = doc_info
+
+    state.historico.append(f"🤖 Classificou {len(pdf_groups)} documentos (paralelo)")
+    state.fase_atual = "EXTRACT_VALIDATE"
     await blob_client.save_state(state.process_id, state.model_dump())
     return state.model_dump()
 
@@ -194,10 +222,7 @@ async def node_dav_flow(state: ProcessState) -> dict:
 
 
 def node_dav_draft_ready(state: ProcessState) -> ProcessState:
-    event = get_event(state)
-    state_dict = state.model_dump()
-    state_dict = handle_dav_draft_generation(state_dict, event)
-    return ProcessState(**state_dict)
+    return ProcessState(state.model_dump())  # placeholder para possível lógica futura
 
 
 # =========================
