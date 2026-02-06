@@ -3,10 +3,10 @@ from typing import Any, Dict, Optional, Annotated
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 from app.models.state import ProcessState
-import re
+import json
 from typing import Any, Dict, List, Tuple
 from app.llms import llm  # teu AzureOpenAI
-
+from app.prompts.intent_prompt import INTENT_ROUTER_SYSTEM
 
 SET_DAV_FIELD_TOOL = {
     "type": "function",
@@ -112,3 +112,5 @@ async def llm_route_intent(user_msg: str) -> dict:
     except json.JSONDecodeError:
         return {"intent": "answer_fields", "confidence": 0.0, "reason": "invalid_json_fallback"}
     return out
+
+
