@@ -57,6 +57,15 @@ MERGE & PRIORITY RULES
    - VIN should be 17 characters; if multiple VINs exist, pick the most frequent non-null valid-length one. If still conflicts, set null.
    - Plate should look like a plausible PT plate string; prefer the version repeated across documents.
 
+7) High-confidence DAV equivalences:
+   - If comprador, adquirente/proprietário and declarante are clearly the same person/entity, do not leave one side null:
+     DC05 <-> 18 for name, DC08 <-> 17a and 06a for fiscal/identification number.
+   - Invoice/transaction mirrors: DC11 <-> 75, DC13 <-> 77, DC15 <-> 84.
+   - Entry-date mirrors: 66 <-> DC25.
+   - Odometer mirrors: 57 <-> 76 when only one reliable kilometer value exists.
+   - Plate 61 can come from foreign registration certificates or inspection documents. Prefer CERTIFICADO_MATRICULA over inspection when they disagree.
+   - Seller/buyer quality can be inferred when explicit: company/VAT seller -> Empresa; personal buyer/NIF -> Particular.
+
 DO NOT
 - Do NOT invent unknown fields.
 - Do NOT output arrays or nested objects.
@@ -76,6 +85,8 @@ DAV TEMPLATE (tens de devolver TODAS estas chaves, mesmo que seja null):
 
 Regras rápidas:
 - Muito importante: Muitas vezes os valores campos podem ser iguais mas não tem o mesmo nome, Ex: "76:Quilómetros do veículo à data da transmissão" e "57:Quilómetros do veículo à data da DAV" podem ter o mesmo valor apesar de serem campos diferentes. Para estes casos, tenta perceber qual é o valor correto para cada campo com base no contexto.
+- Se o declarante for o comprador/adquirente/proprietário, copia os dados equivalentes para ambos os lados em vez de deixar campos vazios: nome (18/DC05), identificação fiscal (17a/DC08/06a) e qualidade/tipo quando for claro.
+- Usa equivalências seguras para preencher mais: data da fatura = data da transmissão (DC11/75), preço = valor de aquisição (DC13/77), pagamento (DC15/84), data de entrada (66/DC25), quilómetros (57/76).
 - NÃO inventes nada. Se não tiveres, mete null.
 - NORMALIZA datas para DD/MM/YYYY.
 - NORMALIZA euros e kms para apenas números.

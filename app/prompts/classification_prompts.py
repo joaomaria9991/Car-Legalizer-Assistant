@@ -204,8 +204,8 @@ NÃO ignores nada só porque não está na lista!
     # ===============================
     "FATURA_PROFORMA": """
 💰 FATURA - CAPTA TODOS OS NEGÓCIOS!
-✅ PRIORIZA: Vendedor(DC01), Comprador(DC05), Nº fatura(DC10), Data(DC11), Preço(DC13)
-✅ CAPTA TAMBÉM: IVA, total, moeda, moradas, contactos, termos!
+✅ PRIORIZA: Vendedor(DC01), Comprador(DC05), NIF comprador(DC08), Nº fatura(DC10), Data(DC11), Preço(DC13)
+✅ CAPTA TAMBÉM: IVA, total, moeda, moradas comprador/vendedor(DC02/DC06), NIF vendedor(DC04), pagamento(DC15), garantia(85), fundamento legal(86), termos!
     """,
 
     "DOCUMENTO_TRANSPORTE_CMR": """
@@ -219,14 +219,14 @@ NÃO ignores nada só porque não está na lista!
     # ===============================
     "CARTAO_CIDADAO": """
 🆔 CARTÃO CIDADÃO - dados pessoais!
-✅ PRIORIZA: NIF(06a), Nº doc(17a), Nome(18)
-✅ CAPTA TAMBÉM: validade, morada, data nascimento, tudo visível!
+✅ PRIORIZA: Nome declarante(18), NIF/identificação fiscal(17a e DC08), Nº documento cidadão(06a)
+✅ CAPTA TAMBÉM: morada fiscal/completa(DC06), validade, data nascimento, tudo visível!
     """,
 
     "CARTAO_CONTRIBUINTE": """
 🆔 NIF ISOLADO
-✅ PRIORIZA: NIF(06a/17a)
-✅ CAPTA TAMBÉM: nome associado, validade, tudo!
+✅ PRIORIZA: NIF do declarante/comprador(17a/DC08/06a)
+✅ CAPTA TAMBÉM: nome associado(18/DC05), morada, validade, tudo!
     """,
 
     "PASSAPORTE": """

@@ -16,6 +16,7 @@ from app.graph.dav_flow_utils import (
     _resolve_key,
     SET_DAV_FIELD_TOOL,
 )
+from app.graph.dav_metadata import record_user_change
 
 # =========================
 # CONFIG / PROMPTS (globals)
@@ -159,6 +160,7 @@ async def dav_run_tool_calling_turn(
                         value=args.get("value"),
                         clear=bool(args.get("clear", False)),
                     )
+                    record_user_change(state, result)
             else:
                 result = {"ok": False, "error": "field em falta"}
         else:

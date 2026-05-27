@@ -1,35 +1,30 @@
-import re
-from typing import Any, Dict, Optional, Annotated
-from langchain_core.tools import tool
-from langgraph.prebuilt import InjectedState
-from app.models.state import ProcessState
 import json
-from typing import Any, Dict, List, Tuple
-from app.llms import llm  # teu AzureOpenAI
+import re
+from typing import Any, Dict, List, Optional
+
+from app.llms import llm
 from app.prompts.intent_prompt import INTENT_ROUTER_SYSTEM
+
 
 SET_DAV_FIELD_TOOL = {
     "type": "function",
     "function": {
         "name": "set_dav_field",
-        "description": "Atualiza um campo da DAV (state.dados_carro). Usa código (ex: '61') ou key completa.",
+        "description": "Atualiza um campo da DAV (state.dados_carro). Usa codigo (ex: '61') ou key completa.",
         "parameters": {
             "type": "object",
             "properties": {
-                "field": {"type": "string", "description": "Ex: '61' ou '61:' ou '61:Número da matrícula definitiva'"},
+                "field": {"type": "string", "description": "Ex: '61' ou '61:' ou '61:Numero da matricula definitiva'"},
                 "value": {"description": "Valor a colocar (ignorado se clear=true)"},
                 "clear": {"type": "boolean", "description": "Se true, mete None", "default": False},
             },
-            "required": ["field"]
-        }
-    }
+            "required": ["field"],
+        },
+    },
 }
 
 
-
-
 def _resolve_key(dados_carro: Dict[str, Any], field: str) -> str:
-    # aceita "61", "61:", "61:Descrição completa"
     if field in dados_carro:
         return field
 
@@ -41,7 +36,6 @@ def _resolve_key(dados_carro: Dict[str, Any], field: str) -> str:
         if k.startswith(f):
             return k
 
-    # fallback: mantém normalizado
     return f
 
 
@@ -59,17 +53,45 @@ def set_dav_field(state, field: str, value: Optional[Any] = None, clear: bool = 
 def _is_missing(v: Any) -> bool:
     return v is None or (isinstance(v, str) and v.strip() == "")
 
-def find_missing_fields(dados_carro: Dict[str, Any]) -> List[str]:
-    """Devolve lista de keys que estão em falta (None/empty)."""
+
+def find_missing_fields(
+    dados_carro: Dict[str, Any],
+    field_meta: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> List[str]:
+    """Returns fields that are empty or need review."""
     if not dados_carro:
         return []
-    return [k for k, v in dados_carro.items() if _is_missing(v)]
+    if not field_meta:
+        return [k for k, v in dados_carro.items() if _is_missing(v)]
 
-def pick_questions(missing: List[str], max_q: int = 6) -> List[str]:
-    """
-    Heurística simples: pergunta primeiro códigos “core” da DAV.
-    Se não existirem no missing, completa com o resto.
-    """
+    needs_review = [
+        k for k, v in field_meta.items()
+        if k in dados_carro and v.get("status") == "needs_review"
+    ]
+    missing = [
+        k for k, v in dados_carro.items()
+        if (field_meta.get(k) or {}).get("status") != "not_applicable"
+        and (_is_missing(v) or (field_meta.get(k) or {}).get("status") == "missing")
+    ]
+    not_applicable = {
+        k for k, v in field_meta.items()
+        if k in dados_carro and v.get("status") == "not_applicable"
+    }
+    return [field for field in _dedupe([*needs_review, *missing]) if field not in not_applicable]
+
+
+def pick_questions(
+    missing: List[str],
+    max_q: int = 6,
+    field_meta: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> List[str]:
+    """Ask review fields first, then core DAV fields. Conflicts stay in metadata audit."""
+    if field_meta:
+        missing = [
+            k for k in missing
+            if (field_meta.get(k) or {}).get("status") not in {"not_applicable", "conflict"}
+        ]
+
     priority_prefixes = [
         "01:", "02:", "05:", "06:", "14:", "17:",
         "33:", "58:", "61:", "66a:", "67:",
@@ -77,8 +99,14 @@ def pick_questions(missing: List[str], max_q: int = 6) -> List[str]:
         "DC03:", "DC07:", "DC09:", "DC12:", "DC16:", "DC21:", "DC26:", "DC27:",
     ]
 
-    chosen = []
-    # 1) pega prioridades
+    chosen: List[str] = []
+    if field_meta:
+        for k in missing:
+            if (field_meta.get(k) or {}).get("status") == "needs_review" and k not in chosen:
+                chosen.append(k)
+                if len(chosen) >= max_q:
+                    return chosen
+
     for p in priority_prefixes:
         for k in missing:
             if k.startswith(p) and k not in chosen:
@@ -86,7 +114,6 @@ def pick_questions(missing: List[str], max_q: int = 6) -> List[str]:
                 if len(chosen) >= max_q:
                     return chosen
 
-    # 2) completa
     for k in missing:
         if k not in chosen:
             chosen.append(k)
@@ -94,6 +121,15 @@ def pick_questions(missing: List[str], max_q: int = 6) -> List[str]:
                 break
     return chosen
 
+
+def _dedupe(values: List[str]) -> List[str]:
+    seen = set()
+    out = []
+    for value in values:
+        if value not in seen:
+            seen.add(value)
+            out.append(value)
+    return out
 
 
 async def llm_route_intent(user_msg: str) -> dict:
@@ -112,5 +148,3 @@ async def llm_route_intent(user_msg: str) -> dict:
     except json.JSONDecodeError:
         return {"intent": "answer_fields", "confidence": 0.0, "reason": "invalid_json_fallback"}
     return out
-
-
