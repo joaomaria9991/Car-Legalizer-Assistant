@@ -4,8 +4,6 @@ Uma plataforma agentic para ajudar na legalização de veículos em Portugal, co
 
 O produto recebe documentos do processo, classifica-os, extrai dados relevantes, cruza informação entre fontes, induz campos equivalentes, deteta campos em falta e guia o utilizador até uma DAV mais completa e auditável.
 
-> Estado do projeto: produto em construção, já com frontend React, backend FastAPI, pipeline de extração, espelho DAV ao estilo AT e assistant de revisão.
-
 ## Preview
 
 Substitui estes placeholders pelos teus prints quando quiseres fazer showcase do produto.
@@ -55,14 +53,83 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-    U["Utilizador"] --> FE["React + Vite Frontend"]
-    FE --> API["FastAPI Backend"]
-    API --> BLOB["Azure Blob Storage"]
-    API --> AOAI["Azure OpenAI"]
-    API --> GRAPH["LangGraph Workflow"]
-    GRAPH --> META["DAV metadata + applicability rules"]
-    FE --> MIRROR["AT-style DAV Mirror"]
-    FE --> CHAT["Assistant UI"]
+    U["Utilizador / Importador"]
+
+    subgraph FE["Frontend React"]
+        HUB["Process Hub"]
+        UPLOAD["Upload + PDF page split"]
+        PROGRESS["Agent Progress Timeline"]
+        CHAT["Assistant Chat"]
+        MIRROR["AT-style DAV Mirror"]
+        DOCS["Document Preview / Download"]
+    end
+
+    subgraph API["FastAPI Backend"]
+        EVENTS["/processes/{id}/events"]
+        STATE_API["/processes + /documents"]
+        BG["Background extraction jobs"]
+    end
+
+    subgraph AGENTS["Agentic Workflow"]
+        CLASSIFY["Document classifier"]
+        EXTRACT["Vision extraction per page"]
+        HARMONIZE["DAV harmonizer"]
+        AUTOFILL["Deterministic autofill"]
+        RULES["Applicability rules"]
+        REVIEW["DAV review planner"]
+        TOOLCALL["set_dav_field tool-calling"]
+    end
+
+    subgraph MEMORY["Process Memory"]
+        BLOB_DOCS["Blob docs/pages"]
+        BLOB_STATE["Blob state.json"]
+        META["Field trust metadata"]
+        LOGS["Agent progress log"]
+    end
+
+    subgraph AI["External AI Services"]
+        AOAI["Azure OpenAI"]
+    end
+
+    U <--> HUB
+    U <--> CHAT
+    U --> UPLOAD
+    HUB <--> STATE_API
+    UPLOAD --> EVENTS
+    CHAT <--> EVENTS
+    PROGRESS <--> STATE_API
+    MIRROR <--> STATE_API
+    DOCS <--> STATE_API
+
+    EVENTS <--> BLOB_STATE
+    STATE_API <--> BLOB_STATE
+    STATE_API <--> BLOB_DOCS
+    EVENTS --> BG
+
+    BG --> CLASSIFY
+    CLASSIFY <--> AOAI
+    CLASSIFY --> BLOB_STATE
+    BG --> EXTRACT
+    EXTRACT <--> BLOB_DOCS
+    EXTRACT <--> AOAI
+    EXTRACT --> HARMONIZE
+    HARMONIZE <--> AOAI
+    HARMONIZE --> AUTOFILL
+    AUTOFILL --> RULES
+    RULES --> REVIEW
+    REVIEW --> CHAT
+    CHAT --> TOOLCALL
+    TOOLCALL --> AUTOFILL
+
+    AUTOFILL --> META
+    RULES --> META
+    REVIEW --> META
+    AGENTS --> LOGS
+    META --> BLOB_STATE
+    LOGS --> BLOB_STATE
+    BLOB_STATE --> PROGRESS
+    BLOB_STATE --> MIRROR
+    BLOB_STATE --> CHAT
 ```
 
 ## Stack
@@ -147,10 +214,6 @@ npm run build
 - Autenticação de utilizadores.
 - Observabilidade com dashboards de erros/progresso.
 
-## Segurança
-
-- Nunca commitar `.env`, chaves Azure, connection strings ou documentos reais de clientes.
-- Rodar chaves expostas antes de qualquer ambiente partilhado.
 
 ## Licença
 
