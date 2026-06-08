@@ -4,7 +4,7 @@ Uma plataforma agentic para ajudar na legalização de veículos em Portugal, co
 
 O produto recebe documentos do processo, classifica-os, extrai dados relevantes, cruza informação entre fontes, induz campos equivalentes, deteta campos em falta e guia o utilizador até uma DAV mais completa e auditável.
 
-> Estado do projeto: produto em construção, já com frontend React, backend FastAPI, pipeline de extração, espelho DAV ao estilo AT, assistant de revisão e preparação para deploy em Azure.
+> Estado do projeto: produto em construção, já com frontend React, backend FastAPI, pipeline de extração, espelho DAV ao estilo AT e assistant de revisão.
 
 ## Preview
 
@@ -36,8 +36,6 @@ Substitui estes placeholders pelos teus prints quando quiseres fazer showcase do
 - **Espelho DAV ao estilo AT** com tabs, secções e códigos próximos do formulário real.
 - **Preview e download de documentos** diretamente no frontend.
 - **Timeline agentic** para acompanhar upload, classificação, extração, harmonização, autofill e revisão.
-- **Preparação para login Microsoft** via MSAL e backend bearer-token validation.
-- **Preparação para deploy Azure** com Docker, Container Apps, Static Web Apps e GitHub Actions.
 
 ## Fluxo do produto
 
@@ -72,7 +70,6 @@ flowchart TB
 - **Frontend:** React, TypeScript, Vite, CSS, lucide-react, pdfjs-dist.
 - **Backend:** FastAPI, Pydantic, LangGraph, Azure OpenAI SDK, Azure Blob Storage SDK.
 - **AI:** Azure OpenAI vision/text extraction, deterministic harmonization/autofill layers.
-- **Deploy:** Docker, Azure Container Apps, Azure Static Web Apps, GitHub Actions.
 
 ## Estrutura
 
@@ -84,8 +81,6 @@ app/
   storage/          Azure Blob client
 frontend/
   src/              React app, DAV mirror, assistant, API client
-deploy/             Azure deployment guides
-.github/workflows/  CI/CD for backend and frontend
 ```
 
 ## Como correr localmente
@@ -101,7 +96,6 @@ AZURE_OPENAI_API_KEY=...
 AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com/
 AZURE_OPENAI_DEPLOYMENT=gpt-4o
 AZURE_OPENAI_API_VERSION=2024-11-20
-AUTH_REQUIRED=false
 CORS_ORIGINS=http://localhost:5173
 ```
 
@@ -128,42 +122,6 @@ Por default, o frontend espera a API em:
 http://localhost:8000
 ```
 
-## Login Microsoft
-
-O projeto já tem preparação para Microsoft login via MSAL.
-
-Para desenvolvimento/demo local, deixa:
-
-```text
-AUTH_REQUIRED=false
-VITE_AUTH_CLIENT_ID=
-```
-
-Quando quiseres ativar login:
-
-- cria uma App Registration no Microsoft Entra ID;
-- configura redirect URI do frontend;
-- expõe um API scope;
-- preenche `VITE_AUTH_*` no frontend;
-- preenche `AZURE_AUTH_*` no backend;
-- muda `AUTH_REQUIRED=true`.
-
-## Deploy em Azure
-
-O caminho recomendado para este produto:
-
-- backend em **Azure Container Apps**;
-- frontend em **Azure Static Web Apps**;
-- Blob Storage e Azure OpenAI como serviços geridos;
-- GitHub Actions para CI/CD.
-
-Guias:
-
-- [Azure Container Apps deploy](deploy/azure-container-apps.md)
-- [GitHub Actions secrets](deploy/github-actions-secrets.md)
-
-Antes de publicar: roda as chaves que estiverem em `.env` local e guarda tudo como secrets no Azure/GitHub.
-
 ## Testes
 
 Backend:
@@ -180,28 +138,19 @@ cd frontend
 npm run build
 ```
 
-Docker:
-
-```powershell
-docker build -t car-legalizer-backend:local .
-```
-
 ## Roadmap
 
-- Login Microsoft ativo em produção.
 - Geração/exportação final da DAV.
 - Melhor auditoria por fonte/documento/página.
 - Mais regras AT de aplicabilidade.
 - Melhor chunking do frontend build.
-- Observabilidade Azure com dashboards de erros/progresso.
+- Autenticação de utilizadores.
+- Observabilidade com dashboards de erros/progresso.
 
 ## Segurança
 
 - Nunca commitar `.env`, chaves Azure, connection strings ou documentos reais de clientes.
-- Rodar chaves expostas antes de qualquer deploy público.
-- Em produção, usar `AUTH_REQUIRED=true`.
-- Restringir `CORS_ORIGINS` ao domínio real do frontend.
-- Manter processos isolados por utilizador quando o login estiver ativo.
+- Rodar chaves expostas antes de qualquer ambiente partilhado.
 
 ## Licença
 
