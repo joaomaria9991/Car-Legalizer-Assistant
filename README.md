@@ -8,17 +8,22 @@ O produto recebe documentos do processo, classifica-os, extrai dados relevantes,
 
 Substitui estes placeholders pelos teus prints quando quiseres fazer showcase do produto.
 
+### DAV Mirror
+
+![DAV Mirror placeholder](docs/screenshots/dav-mirror.png)
+
+### Workflow
+
 | Process Hub | Agent Flow |
 | --- | --- |
 | ![Process Hub placeholder](docs/screenshots/process-hub.png) | ![Agent Flow placeholder](docs/screenshots/agent-flow.png) |
 
-| DAV Mirror | Assistant |
-| --- | --- |
-| ![DAV Mirror placeholder](docs/screenshots/dav-mirror.png) | ![Assistant placeholder](docs/screenshots/assistant.png) |
+### Ajuda de Preenchimento
 
-| Document Preview | Mobile |
+| Assistant | Document Preview |
 | --- | --- |
-| ![Document Preview placeholder](docs/screenshots/document-preview.png) | ![Mobile placeholder](docs/screenshots/mobile.png) |
+| ![Assistant placeholder](docs/screenshots/assistant.png) | ![Document Preview placeholder](docs/screenshots/document-preview.png) |
+
 
 ## O que faz
 
