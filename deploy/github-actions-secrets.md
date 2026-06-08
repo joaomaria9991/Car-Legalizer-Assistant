@@ -1,21 +1,22 @@
 # GitHub Actions Secrets
 
-Add these in GitHub: `Settings -> Secrets and variables -> Actions`.
+Add these secrets in GitHub under:
 
-## Backend
-
-`AZURE_CREDENTIALS`
-
-```json
-{
-  "clientId": "<service-principal-client-id>",
-  "clientSecret": "<service-principal-secret>",
-  "subscriptionId": "<azure-subscription-id>",
-  "tenantId": "<azure-tenant-id>"
-}
+```text
+Settings -> Secrets and variables -> Actions
 ```
 
-Create it with:
+## Backend Workflow
+
+```text
+AZURE_CREDENTIALS
+AZURE_RESOURCE_GROUP
+ACR_NAME
+ACR_LOGIN_SERVER
+CONTAINER_APP_NAME
+```
+
+`AZURE_CREDENTIALS` is the JSON output from an Azure service principal:
 
 ```powershell
 az ad sp create-for-rbac `
@@ -25,20 +26,19 @@ az ad sp create-for-rbac `
   --sdk-auth
 ```
 
-Other backend secrets:
+## Frontend Workflow
 
-- `AZURE_RESOURCE_GROUP`
-- `ACR_NAME`
-- `ACR_LOGIN_SERVER`
-- `CONTAINER_APP_NAME`
+```text
+AZURE_STATIC_WEB_APPS_API_TOKEN
+VITE_API_BASE_URL
+VITE_AUTH_CLIENT_ID
+VITE_AUTH_AUTHORITY
+VITE_AUTH_REDIRECT_URI
+VITE_API_SCOPE
+```
 
-## Frontend
+For a private demo without login, leave the auth-related `VITE_AUTH_*` values empty and keep backend `AUTH_REQUIRED=false`.
 
-- `AZURE_STATIC_WEB_APPS_API_TOKEN`
-- `VITE_API_BASE_URL`
-- `VITE_AUTH_CLIENT_ID`
-- `VITE_AUTH_AUTHORITY`
-- `VITE_AUTH_REDIRECT_URI`
-- `VITE_API_SCOPE`
+## Important
 
-For the private demo phase, leave the auth-related `VITE_AUTH_*` values empty so the frontend does not show Microsoft login.
+Rotate any key that was ever stored in a local `.env` before adding production secrets.
