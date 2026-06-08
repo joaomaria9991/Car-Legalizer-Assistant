@@ -212,10 +212,8 @@ npm run build
 
 ## Roadmap
 
-- Geração/exportação final da DAV.
 - Melhor auditoria por fonte/documento/página.
 - Mais regras AT de aplicabilidade.
-- Melhor chunking do frontend build.
 - Autenticação de utilizadores.
 - Observabilidade com dashboards de erros/progresso.
 
