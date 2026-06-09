@@ -6,7 +6,6 @@ O produto recebe documentos do processo, classifica-os, extrai dados relevantes,
 
 ## Preview
 
-Substitui estes placeholders pelos teus prints quando quiseres fazer showcase do produto.
 
 ### DAV Mirror
 
